@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nuastro Current Transits</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: transparent; }
+
+.ntw {
+  width: 100%;
+  font-family: monospace;
+}
+.ntw-box {
+  border: 1px solid #1a1a1a;
+  padding: 20px 24px 16px;
+  background: #fff;
+}
+.ntw-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.ntw-label {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #333;
+  font-weight: 700;
+}
+.ntw-utc {
+  font-size: 10px;
+  color: #999;
+}
+
+/* two-column grid */
+.ntw-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 32px;
+}
+
+.ntw-col table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.ntw-col th {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #aaa;
+  font-weight: 400;
+  padding: 0 0 7px 0;
+  border-bottom: 1px solid #e0e0e0;
+  text-align: left;
+}
+.ntw-col th.r { text-align: right; }
+.ntw-col td {
+  padding: 7px 0;
+  border-bottom: 0.5px solid #f0f0f0;
+  font-size: 13px;
+  color: #111;
+}
+.ntw-col td.con { color: #555; }
+.ntw-col td.deg { text-align: right; color: #777; white-space: nowrap; }
+.ntw-col tr:last-child td { border-bottom: none; }
+.rx { font-size: 10px; color: #bbb; margin-left: 3px; }
+
+/* divider between columns */
+.ntw-col:first-child {
+  border-right: 0.5px solid #e8e8e8;
+  padding-right: 16px;
+}
+.ntw-col:last-child {
+  padding-left: 16px;
+}
+
+.ntw-footer {
+  font-size: 10px;
+  color: #ccc;
+  margin-top: 14px;
+  display: flex;
+  justify-content: space-between;
+  border-top: 0.5px solid #f0f0f0;
+  padding-top: 10px;
+}
+
+/* mobile: stack columns */
+@media (max-width: 480px) {
+  .ntw-grid {
+    grid-template-columns: 1fr;
+    gap: 20px 0;
+  }
+  .ntw-col:first-child {
+    border-right: none;
+    padding-right: 0;
+    border-bottom: 0.5px solid #e8e8e8;
+    padding-bottom: 20px;
+  }
+  .ntw-col:last-child {
+    padding-left: 0;
+  }
+  .ntw-col td { font-size: 14px; padding: 8px 0; }
+}
+</style>
+</head>
+<body>
+
+<div class="ntw">
+  <div class="ntw-box">
+
+    <div class="ntw-head">
+      <span class="ntw-label">Current Transits</span>
+      <span class="ntw-utc" id="ntw-utc">—</span>
+    </div>
+
+    <div class="ntw-grid">
+      <div class="ntw-col">
+        <table>
+          <thead><tr><th>Planet</th><th>Constellation</th><th class="r">Degree</th></tr></thead>
+          <tbody id="ntw-row1"><tr><td colspan="3" style="color:#ddd;padding:10px 0;">Loading…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="ntw-col">
+        <table>
+          <thead><tr><th>Planet</th><th>Constellation</th><th class="r">Degree</th></tr></thead>
+          <tbody id="ntw-row2"><tr><td colspan="3" style="color:#ddd;padding:10px 0;">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="ntw-footer">
+      <span>IAU real-sky · geocentric</span>
+      <span>refresh in <span id="ntw-cd">5:00</span></span>
+    </div>
+
+  </div>
+</div>
+
+<!-- astronomy-engine loaded from CDN — browser caches it after first visit -->
+<script src="https://cdn.jsdelivr.net/npm/astronomy-engine@2.1.19/astronomy.browser.min.js" defer></script>
+<script defer>
+(function () {
+
+  // IAU ecliptic entry points — used only for degree-within-constellation display
+  var IAU_ZODIACAL = [
+    { name: 'Pisces',      start: 351.65 },
+    { name: 'Aries',       start:  28.68 },
+    { name: 'Taurus',      start:  53.43 },
+    { name: 'Gemini',      start:  90.43 },
+    { name: 'Cancer',      start: 118.23 },
+    { name: 'Leo',         start: 138.08 },
+    { name: 'Virgo',       start: 174.23 },
+    { name: 'Libra',       start: 217.83 },
+    { name: 'Scorpio',     start: 241.05 },
+    { name: 'Ophiuchus',   start: 247.68 },
+    { name: 'Sagittarius', start: 266.28 },
+    { name: 'Capricorn',   start: 299.73 },
+    { name: 'Aquarius',    start: 327.48 },
+  ];
+
+  var LEFT  = ['Sun','Moon','Mercury','Venus','Mars','Chiron'];
+  var RIGHT = ['Jupiter','Saturn','Uranus','Neptune','Pluto','Lilith'];
+  var NAMES = {
+    Sun:'Sun', Moon:'Moon', Mercury:'Mercury', Venus:'Venus', Mars:'Mars',
+    Chiron:'Chiron', Jupiter:'Jupiter', Saturn:'Saturn', Uranus:'Uranus',
+    Neptune:'Neptune', Pluto:'Pluto', Lilith:'Lilith (BML)'
+  };
+
+  // ── Helpers ────────────────────────────────────────────────────────
+
+  function dateToJD(d) { return d.getTime() / 86400000.0 + 2440587.5; }
+
+  function solveKepler(M, e) {
+    var E = M;
+    for (var i = 0; i < 200; i++) {
+      var dE = (M - E + e * Math.sin(E)) / (1 - e * Math.cos(E));
+      E += dE;
+      if (Math.abs(dE) < 1e-12) break;
+    }
+    return E;
+  }
+
+  function obliquity(jd) {
+    var T = (jd - 2451545.0) / 36525.0;
+    return (23.439291111 - 0.013004167*T - 1.64e-7*T*T + 5.04e-7*T*T*T) * Math.PI / 180;
+  }
+
+  function eclipticToEquatorial(lonDeg, latDeg, jd) {
+    var eps = obliquity(jd);
+    var lon = lonDeg * Math.PI / 180, lat = latDeg * Math.PI / 180;
+    var ra  = Math.atan2(Math.sin(lon)*Math.cos(eps) - Math.tan(lat)*Math.sin(eps), Math.cos(lon));
+    var dec = Math.asin(Math.sin(lat)*Math.cos(eps) + Math.cos(lat)*Math.sin(eps)*Math.sin(lon));
+    return { ra: ((ra * 180/Math.PI / 15) + 24) % 24, dec: dec * 180/Math.PI };
+  }
+
+  // ── Position calculations ───────────────────────────────────────────
+
+  function chironEcliptic(jd) {
+    var a=13.648, e=0.3831, inc=6.931*Math.PI/180,
+        Omega=209.05*Math.PI/180, omega=339.53*Math.PI/180,
+        Tp=2450127.5, P=50.4*365.25;
+    var n=(2*Math.PI)/P;
+    var M=((n*(jd-Tp))%(2*Math.PI)+2*Math.PI)%(2*Math.PI);
+    var E=solveKepler(M,e);
+    var nu=2*Math.atan2(Math.sqrt(1+e)*Math.sin(E/2),Math.sqrt(1-e)*Math.cos(E/2));
+    var r=a*(1-e*Math.cos(E)), u=nu+omega;
+    var Cx=r*(Math.cos(Omega)*Math.cos(u)-Math.sin(Omega)*Math.sin(u)*Math.cos(inc));
+    var Cy=r*(Math.sin(Omega)*Math.cos(u)+Math.cos(Omega)*Math.sin(u)*Math.cos(inc));
+    var Cz=r*Math.sin(u)*Math.sin(inc);
+    var d2=new Date((jd-2440587.5)*86400000), t2=Astronomy.MakeTime(d2);
+    var sunLon=Astronomy.Ecliptic(Astronomy.GeoVector('Sun',t2,false)).elon;
+    var sr=sunLon*Math.PI/180;
+    var gx=Cx-Math.cos(sr+Math.PI), gy=Cy-Math.sin(sr+Math.PI), gz=Cz;
+    var dist=Math.sqrt(gx*gx+gy*gy+gz*gz);
+    return { lon:((Math.atan2(gy,gx)*180/Math.PI)%360+360)%360, lat:Math.asin(gz/dist)*180/Math.PI };
+  }
+
+  function lilitLon(jd) {
+    var T=(jd-2451545.0)/36525.0;
+    var L=83.3532465+4069.0137287*T-0.0103200*T*T-(T*T*T)/80053.0+(T*T*T*T)/18999000.0;
+    return ((L+180)%360+360)%360;
+  }
+
+  // Returns geocentric ecliptic longitude (for degree display + retrograde)
+  function getLon(id, date) {
+    var jd=dateToJD(date);
+    if (id==='Moon')   return Astronomy.EclipticGeoMoon(date).lon;
+    if (id==='Chiron') return chironEcliptic(jd).lon;
+    if (id==='Lilith') return lilitLon(jd);
+    var t=Astronomy.MakeTime(date);
+    return Astronomy.Ecliptic(Astronomy.GeoVector(id,t,true)).elon;
+  }
+
+  // Returns J2000 equatorial RA/Dec for true IAU boundary lookup
+  function getEquatorial(id, date) {
+    var jd=dateToJD(date);
+    if (id==='Chiron') { var ec=chironEcliptic(jd); return eclipticToEquatorial(ec.lon,ec.lat,jd); }
+    if (id==='Lilith') return eclipticToEquatorial(lilitLon(jd),0,jd);
+    var t=Astronomy.MakeTime(date);
+    var v=Astronomy.GeoVector(id,t,true);
+    var r=Math.sqrt(v.x*v.x+v.y*v.y+v.z*v.z);
+    return { ra:((Math.atan2(v.y,v.x)*180/Math.PI/15)+24)%24, dec:Math.asin(v.z/r)*180/Math.PI };
+  }
+
+  // TRUE IAU constellation name via astronomy-engine's Roman (1987) boundary catalog
+  function getConstellation(id, date) {
+    var eq=getEquatorial(id,date);
+    var name=Astronomy.Constellation(eq.ra,eq.dec).name;
+    if (name==='Scorpius')    return 'Scorpio';
+    if (name==='Capricornus') return 'Capricorn';
+    return name;
+  }
+
+  function isRetrograde(id, date) {
+    if (id==='Sun'||id==='Moon'||id==='Lilith') return false;
+    var ONE=86400000;
+    var l1=getLon(id,new Date(date.getTime()-ONE));
+    var l2=getLon(id,new Date(date.getTime()+ONE));
+    var d=l2-l1; if(d>180) d-=360; if(d<-180) d+=360;
+    return d<0;
+  }
+
+  function formatDeg(lon, conName) {
+    var L=((lon%360)+360)%360;
+    var entry=null;
+    for (var i=0;i<IAU_ZODIACAL.length;i++) { if(IAU_ZODIACAL[i].name===conName){entry=IAU_ZODIACAL[i];break;} }
+    if (!entry) { for(var j=IAU_ZODIACAL.length-1;j>=0;j--){if(L>=IAU_ZODIACAL[j].start){entry=IAU_ZODIACAL[j];break;}} }
+    if (!entry) entry=IAU_ZODIACAL[0];
+    var within=L>=entry.start ? L-entry.start : L+(360-entry.start);
+    var deg=Math.floor(within), min=Math.floor((within-deg)*60);
+    return deg+'°'+String(min).padStart(2,'0')+'′';
+  }
+
+  // ── Rendering ──────────────────────────────────────────────────────
+
+  function buildRows(ids, date) {
+    return ids.map(function(id) {
+      var lon=getLon(id,date);
+      var con=getConstellation(id,date);
+      var rx=isRetrograde(id,date);
+      var deg=formatDeg(lon,con);
+      var rxTag=rx?'<span class="rx">Rx</span>':'';
+      return '<tr>'
+        +'<td>'+NAMES[id]+rxTag+'</td>'
+        +'<td class="con">'+con+'</td>'
+        +'<td class="deg">'+deg+'</td>'
+        +'</tr>';
+    }).join('');
+  }
+
+  function renderNow() {
+    var now=new Date();
+    var hh=String(now.getUTCHours()).padStart(2,'0');
+    var mm=String(now.getUTCMinutes()).padStart(2,'0');
+    var utcEl=document.getElementById('ntw-utc');
+    if (utcEl) utcEl.textContent=hh+':'+mm+' UTC';
+    var r1=document.getElementById('ntw-row1');
+    var r2=document.getElementById('ntw-row2');
+    if (r1) r1.innerHTML=buildRows(LEFT,now);
+    if (r2) r2.innerHTML=buildRows(RIGHT,now);
+  }
+
+  // ── Countdown + auto-refresh ────────────────────────────────────────
+
+  var countdown=300;
+  setInterval(function(){
+    countdown--;
+    if(countdown<=0){countdown=300;renderNow();}
+    var el=document.getElementById('ntw-cd');
+    if(el) el.textContent=Math.floor(countdown/60)+':'+String(countdown%60).padStart(2,'0');
+  },1000);
+
+  // Wait for astronomy-engine to be available (it loads with defer)
+  function waitAndRun() {
+    if (typeof Astronomy !== 'undefined') { renderNow(); }
+    else { setTimeout(waitAndRun, 50); }
+  }
+
+  if (document.readyState==='loading') {
+    document.addEventListener('DOMContentLoaded', waitAndRun);
+  } else {
+    waitAndRun();
+  }
+
+})();
+</script>
+</body>
+</html>
